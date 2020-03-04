@@ -1,0 +1,22 @@
+default vesamenu.c32
+prompt 1
+timeout 5
+
+display boot.msg
+
+label linux
+  menu label ^Install system
+  menu default
+  kernel images/RHEL/vmlinuz
+  append initrd=images/RHEL/initrd.img ip=dhcp inst.repo=http://172.25.3.1/RHEL/iso/ inst.ks=http://172.25.3.1/kickstart.cfg inst.keymap=dvorak
+label vesa
+  menu label Install system with ^basic video driver
+  kernel images/RHEL/vmlinuz
+  append initrd=images/RHEL/initrd.img ip=dhcp inst.xdriver=vesa nomodeset inst.repo=http://172.25.3.1/RHEL/iso/
+label rescue
+  menu label ^Rescue installed system
+  kernel images/RHEL/vmlinuz
+  append initrd=images/RHEL/initrd.img rescue
+label local
+  menu label Boot from ^local drive
+  localboot 0xffff

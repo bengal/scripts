@@ -1,0 +1,118 @@
+# Ansible playbook to configure a RHEL 8 machine as PXE/DHCP/TFTP
+# server for an automated installation using kickstart.
+#
+# Prerequisites:
+#
+# - the ISO image is mounted to the directory specified in the
+#   'iso_mount_path' variable below (must include trailing /). To
+#   mount it, use:
+#
+#       mkdir iso
+#       sudo mount -t iso9660 rhel-dvd.iso iso/ -o loop,ro
+#
+# - the server has an interface connected to the same network of the
+#   VM to be installed. The interface name is specified in the
+#   'interface' variable below. This interface will be reconfigured
+#   with a static address and so it must be different from the one
+#   used by ansible.
+#
+# After this playbook has run, create a VM that will begin the
+# installation process automatically:
+#
+#      sudo virt-install --name test-pxe --memory 2048 --vcpus 2   \
+#                        --disk size=10 --os-variant rhel8.1 --pxe \ 
+#                        --network bridge=bridge-pxe
+#
+# where 'bridge-pxe' is a bridge connected to '{{ interface }}'.
+
+---
+- name: Set up server for RHEL automated install using PXE and kickstart
+  remote_user: root
+  hosts: all
+  vars:
+    - iso_mount_path: "iso/"
+    - interface: "enp9s0"
+  tasks:
+    - name: Install packages
+      package:
+        name:
+          - httpd
+          - dnsmasq
+          - syslinux-tftpboot
+        state: present
+
+    - name: Configure firewall
+      firewalld:
+        service: "{{ item }}"
+        permanent: yes
+        immediate: yes
+        state: enabled
+      loop:
+        - http
+        - tftp
+        - dhcp
+
+    - include_role:
+        name: linux-system-roles.network
+      vars:
+        network_connections:
+          - name: pxe
+            type: ethernet
+            state: up
+            interface_name: "{{ interface }}"
+            ip:
+              address:
+                - 172.25.3.1/24
+
+    - name: Copy dnsmasq configuration
+      template:
+        src: files/dnsmasq-pxe.conf.j2
+        dest: /etc/dnsmasq.d/pxe.conf
+
+    - name: Copy kickstart file
+      copy:
+        src: files/kickstart.cfg
+        dest: /var/www/html/kickstart.cfg
+
+    - name: Create directories for PXE boot and ISO tree
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /var/www/html/RHEL/iso
+        - /var/lib/tftpboot/pxelinux/pxelinux.cfg
+        - /var/lib/tftpboot/pxelinux/images/RHEL
+
+    - name: Copy PXE files
+      copy:
+        src: /tftpboot/
+        dest: /var/lib/tftpboot/pxelinux
+        remote_src: yes
+
+    - name: Copy kernel and initrd
+      copy:
+        src: "{{ iso_mount_path }}images/pxeboot/{{ item }}"
+        dest: "/var/lib/tftpboot/pxelinux/images/RHEL/{{ item }}"
+      loop:
+        - vmlinuz
+        - initrd.img
+
+    - name: Copy PXE config
+      copy:
+        src: files/pxelinux.cfg.default
+        dest: /var/lib/tftpboot/pxelinux/pxelinux.cfg/default
+
+    - name: Synchronize ISO tree
+      synchronize:
+        src: "{{ iso_mount_path }}"
+        dest: /var/www/html/RHEL/iso
+
+    - name: Enable services
+      service:
+        name: "{{ item }}"
+        state: restarted
+        enabled: yes
+      loop:
+        - httpd
+        - dnsmasq
