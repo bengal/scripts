@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# set to 1 to test with stateless DHCPv6
+# STATELESS=0
+
 unalias ip
 
 cleanup()
@@ -53,20 +56,32 @@ ip -n ns1 addr add dev v1p fc01::1/64
 
 ip -n ns2 link set v2p up
 
+if [ "$STATELESS" = 1 ]; then
+  adv_managed=off
+  adv_prefix="prefix fc01::/64 {AdvOnLink on; AdvAutonomous on; AdvRouterAddr off; };"
+  dhcp_range=""
+else
+  adv_managed=on
+  adv_prefix=""
+  dhcp_range="range6  fc01::1000 fc01::ffff;"
+fi
+
 cat > radvd.conf <<EOF
 interface v1p {
-        AdvManagedFlag on;
+        AdvManagedFlag ${adv_managed};
         AdvSendAdvert on;
         AdvOtherConfigFlag on;
         MinRtrAdvInterval 3;
         MaxRtrAdvInterval 60;
+        ${adv_prefix}
 };
 EOF
 
 cat > dhcpd.conf <<EOF
 subnet6 fc01::/64 {
-	range6  fc01::1000 fc01::ffff;
-	prefix6 fc01:bbbb:1:: fc01:bbbb:2:: /60;
+        ${dhcp_range}
+	prefix6 fc01:bbbb:1:: fc01:bbbb:2:: / 60;
+	option dhcp6.name-servers fc01::8888;
 }
 EOF
 
@@ -75,26 +90,19 @@ ip netns exec ns1 radvd -n -C radvd.conf -p radvd.pid &
 ip netns exec ns1 dhcpd -6 -d -cf dhcpd.conf -lf leases.conf -pf dhcpd.pid &
 
 nmcli connection add type ethernet ifname v1 con-name v1+ ipv4.method disabled ipv6.method auto autoconnect no
+nmcli connection add type ethernet ifname v2 con-name v2+ ipv4.method disabled ipv6.method shared autoconnect no
+
 nmcli connection up v1+
 
 sleep 5
 
-nmcli connection add type ethernet ifname v2 con-name v2+ ipv4.method disabled ipv6.method shared autoconnect no
 nmcli connection up v2+
 
 sleep 5
 
-# parse the lease file, extract the client address and the prefix
-# delegated to it; add a route needed to reach the prefix through
-# that client
-addr=$(grep -m 1 iaaddr leases.conf | sed -r 's/\s+iaaddr ([a-f0-9:]+) \{.*/\1/')
-prefix=$(grep -m 1 iaprefix leases.conf | sed -r 's/\s+iaprefix ([a-f0-9:/]+) \{.*/\1/')
-if [ -z "$addr" ] || [ -z "$prefix" ]; then
-    echo "Address or prefix not found in lease file"
-    exit 1
-fi
-
-ip netns exec ns1 ip route add $prefix via $addr 
+addr=$(ip -j addr show dev v1 | jq -r '.[0].addr_info[] | select(.scope=="link")'.local)
+prefix="fc01:bbbb:1::/32"
+ip netns exec ns1 ip route add $prefix via $addr dev v1p
 
 # kernel does IPv6 autoconf in ns2 ...
 
@@ -111,3 +119,5 @@ if ! ip netns exec ns2 ping -c2 fc01::1; then
     echo "ERROR: ping failed"
     exit 1
 fi
+
+echo "OK"
