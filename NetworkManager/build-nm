@@ -1,0 +1,102 @@
+#!/bin/sh
+
+export CFLAGS="-Og -ggdb -Wall -Werror"
+JOBS=8
+
+nm_build_meson()
+{
+    rm -rf meson-build/
+
+    set -x
+
+    meson meson-build --werror\
+          --prefix=/usr \
+          --sysconfdir=/etc \
+          --localstatedir=/var \
+          -Dintrospection=true \
+          -Db_lto=false \
+          -Dconcheck=true \
+          -Dnmcli=true \
+          -Dnmtui=true \
+          -Dpolkit=true  \
+          -Dpolkit_agent=true \
+          -Difupdown=true \
+          -Dvapi=true \
+          -Dld_gc=true \
+          -Dlibpsl=true \
+          -Dnm_cloud_setup=true \
+          -Ddocs=true \
+          -Dvalgrind=no \
+          -Dofono=true \
+          -Dovs=true \
+          -Dppp=true \
+          -Dpppd_plugin_dir=/usr/lib64/pppd/2.4.7 \
+          -Dlibaudit=yes \
+          -Dteamdctl=true \
+          -Dconfig_dhcp_default=internal \
+          -Diwd=true \
+          -Dresolvconf=/bin/resolvconf \
+          -Dqt=false
+
+    ninja -j$JOBS -C meson-build
+
+    set +x
+}
+
+nm_build_autotools() {
+
+    set -x
+
+    find . -name .deps | xargs rm -rf
+
+    ./autogen.sh \
+      --prefix=/usr \
+      --exec-prefix=/usr \
+      --sysconfdir=/etc \
+      --localstatedir=/var \
+      --disable-lto \
+      --enable-introspection=yes \
+      --without-libnm-glib \
+      --enable-concheck \
+      --with-valgrind=yes \
+      --with-valgrind-suppressions=valgrind.suppressions \
+      --enable-ifcfg-rh \
+      --enable-ifupdown \
+      --enable-ifnet \
+      --enable-vala=yes \
+      --enable-polkit=yes \
+      --with-nmtui=yes \
+      --with-suspend-resume=systemd \
+      --with-crypto=nss \
+      --enable-tests=yes \
+      --with-pppd-plugin-dir=/usr/lib64/pppd/2.4.7 \
+      --enable-teamdctl=yes \
+      --enable-more-asserts \
+      --with-more-asserts=100 \
+      --enable-wifi \
+      --enable-more-warnings=error \
+      --enable-compile-warnings=yes \
+      --with-iwd=yes \
+      --enable-more-logging \
+      --with-modem-manager-1 \
+      --with-address-sanitizer=no \
+      --with-undefined-sanitizer=no \
+      --enable-gtk-doc \
+      --with-nm-cloud-setup \
+      --disable-ebpf
+
+    set +x
+
+    make -j$JOBS
+}
+
+if [ ! -d "examples/python/gi" ]; then
+    echo "*** error: not in NetworkManager directory"
+    exit 1
+fi
+
+if [ "$MESON" = 1 ]; then
+    nm_build_meson
+else
+    nm_build_autotools
+fi
