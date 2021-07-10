@@ -1,9 +1,11 @@
 #!/bin/sh
 
-# set to 1 to test with stateless DHCPv6
-# STATELESS=0
+# MODE=ll|slaac|dhcp-stateful|dhcp-stateless
+MODE=${1:-dhcp-stateful}
 
-unalias ip
+echo "Starting in $MODE mode..."
+
+unalias ip 2> /dev/null
 
 cleanup()
 {
@@ -17,6 +19,14 @@ cleanup()
     ip netns del ns2
     ip link del v1
     ip link del v2
+}
+
+require()
+{
+    if ! command -v "$1" > /dev/null ; then
+	echo " *** Error: command '$1' not found"
+	exit 1
+    fi
 }
 
 exit_hook()
@@ -35,6 +45,12 @@ exit_hook()
 
 # NM is in the default namespace and has a connection to ns1 with
 # ipv6.method=auto and to ns2 with ipv6.method=shared.
+
+require nmcli
+require ip
+require jq
+require radvd
+require dhcpd
 
 cleanup
 trap exit_hook EXIT
@@ -56,21 +72,33 @@ ip -n ns1 addr add dev v1p fc01::1/64
 
 ip -n ns2 link set v2p up
 
-if [ "$STATELESS" = 1 ]; then
-  adv_managed=off
-  adv_prefix="prefix fc01::/64 {AdvOnLink on; AdvAutonomous on; AdvRouterAddr off; };"
-  dhcp_range=""
+
+if [ "$MODE" = ll ]; then
+    adv_managed=off
+    adv_other=off
+elif [ "$MODE" = slaac ]; then
+    adv_managed=off
+    adv_other=off
+    adv_prefix="prefix fc01::/64 {AdvOnLink on; AdvAutonomous on; AdvRouterAddr off; };"
+elif [ "$MODE" = dhcp-stateless ]; then
+    adv_managed=off
+    adv_other=on
+    adv_prefix="prefix fc01::/64 {AdvOnLink on; AdvAutonomous on; AdvRouterAddr off; };"
+    dhcp_range=""
+elif [ "$MODE" = dhcp-stateful ]; then
+    adv_managed=on
+    adv_other=off
+    dhcp_range="range6  fc01::1000 fc01::ffff;"
 else
-  adv_managed=on
-  adv_prefix=""
-  dhcp_range="range6  fc01::1000 fc01::ffff;"
-fi
+    echo "Unknown mode '$MODE'"
+    exit 1
+fi    
 
 cat > radvd.conf <<EOF
 interface v1p {
-        AdvManagedFlag ${adv_managed};
         AdvSendAdvert on;
-        AdvOtherConfigFlag on;
+        AdvManagedFlag ${adv_managed};
+        AdvOtherConfigFlag ${adv_other};
         MinRtrAdvInterval 3;
         MaxRtrAdvInterval 60;
         ${adv_prefix}
@@ -99,6 +127,9 @@ sleep 5
 nmcli connection up v2+
 
 sleep 5
+
+ip a show dev v1
+ip a show dev v2
 
 addr=$(ip -j addr show dev v1 | jq -r '.[0].addr_info[] | select(.scope=="link")'.local)
 prefix="fc01:bbbb:1::/32"
