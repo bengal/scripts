@@ -1,0 +1,116 @@
+#!/bin/sh
+
+set -x
+
+target=$1
+
+if [ "$MESON" = 1 ]; then
+    prefix="meson-build/"
+else
+    ltdir=".libs/"
+fi
+
+
+if [ -z "$1" ]; then
+    sudo=sudo
+    cmd=cp
+    target=
+else
+    sudo=
+    cmd="scp -C -o GSSAPIAuthentication=no"
+    target="$1":
+    ssh-copy-id $1
+fi
+
+if [ -f src/core/main.c ]; then
+  core="src/core"
+else
+  core="src"
+fi
+
+if [ -n "$STRIP" ]; then
+    strip ${prefix}libnm/${ltdir}libnm.so.0.1.0
+    strip ${prefix}clients/cli/${ltdir}nmcli
+    strip ${prefix}clients/tui/${ltdir}nmtui
+    strip ${prefix}${core}/NetworkManager
+fi
+
+if [ -z "$sudo" ]; then
+    ssh -o GSSAPIAuthentication=no $1 systemctl stop NetworkManager
+fi
+
+#[ -z "$1" ] && $sudo rm $target/usr/lib64/libnm.so.0.1.0
+$sudo $cmd ${prefix}libnm/${ltdir}libnm.so.0.1.0 ${prefix}libnm/${ltdir}libnm.so.0.0.0 $target/usr/lib64/
+$sudo $cmd ${prefix}src/libnm-client-impl/${ltdir}libnm.so.0.1.0 $target/usr/lib64/
+
+$sudo $cmd ${prefix}clients/cli/${ltdir}nmcli ${prefix}clients/tui/${ltdir}nmtui ${prefix}clients/${ltdir}nm-online $target/usr/bin/
+$sudo $cmd ${prefix}clients/cli/${ltdir}nmcli ${prefix}clients/tui/${ltdir}nmtui $target/bin/
+$sudo $cmd ${prefix}src/nmcli/${ltdir}nmcli ${prefix}src/nmtui/${ltdir}nmtui $target/bin/
+
+$sudo $cmd ${prefix}${core}/dhcp-manager/nm-dhcp-helper $target/usr/libexec/
+$sudo $cmd ${prefix}${core}/initrd/nm-initrd-generator $target/usr/libexec/
+$sudo $cmd ${prefix}src/nm-initrd-generator/nm-initrd-generator $target/usr/libexec/
+$sudo $cmd ${prefix}src/nm-daemon-helper/nm-daemon-helper $target/usr/libexec/
+$sudo $cmd ${prefix}${core}/dhcp/nm-dhcp-helper $target/usr/libexec/
+$sudo $cmd ${prefix}./clients/${ltdir}nm-online $target/usr/bin/nm-online
+$sudo $cmd ${prefix}clients/cli/nmcli-completion $target/usr/share/bash-completion/completions/nmcli
+$sudo $cmd ${prefix}callouts/${ltdir}nm-dispatcher $target/usr/libexec/
+$sudo $cmd ${prefix}${core}/ppp/${ltdir}nm-pppd-plugin.so $target/usr/lib64/pppd/2.4.7/
+$sudo $cmd ${prefix}${core}/ppp/${ltdir}nm-pppd-plugin.so $target/usr/lib64/pppd/2.4.9/
+$sudo $cmd ${prefix}${core}/ppp/${ltdir}nm-pppd-plugin.so $target/usr/lib/pppd/2.4.7/
+$sudo $cmd ${prefix}${core}/ppp/${ltdir}nm-pppd-plugin.so $target/usr/lib/pppd/2.4.9/
+$sudo $cmd ${prefix}${core}/org.freedesktop.NetworkManager.conf $target/etc/dbus-1/system.d/
+$sudo $cmd ${prefix}libnm-core/*.h libnm/*.h shared/nm-version-macros.h $target/usr/include/libnm/
+$sudo $cmd ${prefix}libnm-util/*.h libnm-glib/*.h $target/usr/include/libnm-glib/
+$sudo $cmd ${prefix}libnm/NM-1.0.typelib $target/usr/lib64/girepository-1.0/NM-1.0.typelib
+$sudo $cmd ${prefix}src/libnm-client-impl/NM-1.0.typelib $target/usr/lib64/girepository-1.0/NM-1.0.typelib
+$sudo $cmd ${prefix}dispatcher/${ltdir}nm-dispatcher $target/usr/libexec/nm-dispatcher
+[ -n "$target" ] && $sudo $cmd ${prefix}data/org.freedesktop.NetworkManager.policy $target/usr/share/polkit-1/actions/
+
+plugins="${prefix}${core}/settings/plugins/ifcfg-rh/${ltdir}libnm-settings-plugin-ifcfg-rh.so
+${prefix}${core}/settings/plugins/ifnet/${ltdir}libnm-settings-plugin-ifnet.so
+${prefix}${core}/devices/team/${ltdir}libnm-device-plugin-team.so
+${prefix}${core}/devices/wifi/${ltdir}libnm-device-plugin-wifi.so
+${prefix}${core}/devices/wwan/${ltdir}libnm-device-plugin-wwan.so
+${prefix}${core}/devices/ovs/${ltdir}libnm-device-plugin-ovs.so
+${prefix}${core}/devices/wwan/${ltdir}libnm-wwan.so
+${prefix}${core}/devices/bluetooth/${ltdir}libnm-device-plugin-bluetooth.so
+${prefix}${core}/ppp-manager/${ltdir}libnm-ppp-plugin.so
+${prefix}${core}/ppp/${ltdir}libnm-ppp-plugin.so
+${prefix}${core}/devices/adsl/${ltdir}libnm-device-plugin-adsl.so"
+
+if [ -n "$strip" ]; then
+    for i in $plugins; do
+	    strip $i
+    done
+fi
+
+ver=$(grep version: meson.build | head -n 1 | cut -d\' -f 2)
+
+$sudo $cmd $plugins $target/usr/lib64/NetworkManager/
+if [ -n "$ver" ]; then
+    if [ -n "$sudo" ]; then
+        $sudo mkdir /usr/lib64/NetworkManager/$ver/
+    else
+        ssh -o GSSAPIAuthentication=no $1 mkdir /usr/lib64/NetworkManager/$ver/
+    fi
+    $sudo $cmd $plugins $target/usr/lib64/NetworkManager/$ver/
+fi
+
+if [ -n "$sudo" ]; then
+    $sudo rm $target/sbin/NetworkManager
+    $sudo cp ${prefix}${core}/NetworkManager $target/sbin/
+else
+    ssh -o GSSAPIAuthentication=no $1 systemctl stop NetworkManager
+    ssh -o GSSAPIAuthentication=no $1 rm /sbin/NetworkManager
+    ssh -o GSSAPIAuthentication=no $1 mkdir work/NetworkManager
+    $sudo $cmd ${prefix}${core}/NetworkManager $target/sbin/
+fi
+
+[ -n "$SRC" ] && rsync -avC --include='*.c' --include='*.h' --include='*/' --exclude='*' ${core}/ $1:work/NetworkManager/${core}
+[ -n "$SRC" ] && rsync -avC --include='*.c' --include='*.h' --include='*/' --exclude='*' lib/ $1:work/NetworkManager/lib
+[ -n "$SRC" ] && rsync -avC --include='*.c' --include='*.h' --include='*/' --exclude='*' shared/ $1:work/NetworkManager/shared
+[ -n "$SRC" ] && rsync -avC --include='*.c' --include='*.h' --include='*/' --exclude='*' clients/ $1:work/NetworkManager/clients
+[ -n "$SRC" ] && rsync -avC --include='*.c' --include='*.h' --include='*/' --exclude='*' libnm/ $1:work/NetworkManager/libnm
+[ -n "$SRC" ] && rsync -avC --include='*.c' --include='*.h' --include='*/' --exclude='*' libnm-core/ $1:work/NetworkManager/libnm-core
+
