@@ -1,0 +1,193 @@
+#!/bin/sh
+
+usage()
+{
+    cat <<EOF
+Script to remotely install NetworkManager binaries via ssh directly
+from build tree.
+
+Warning: this script can damage the target host, use it with caution.
+
+Warning: at the moment this requires a recent version of the git tree
+         and the target machine must be using Fedora.
+
+Usage: $1 [OPTIONS] [USER@HOST]
+
+Supported options:
+
+  --strip    Strip binaries before transfer (useful on slow networks)
+  --local    Copy to local machine
+  --meson    The build tree uses meson
+             (automatically implied when MESON=1 is set in environment)
+  --source   Copy source code to HOST:NetworkManager/
+  --help     Print this help
+EOF
+}
+
+die()
+{
+    echo " *** Error: $*"
+    exit 1
+}
+
+transfer()
+{
+    local src="$1"
+    local dst="$2"
+
+    if [ ! -f "$src" ]; then
+        echo " ! File $1 does not exist"
+        return
+    fi
+
+    if [ "$do_strip" = 1 ]; then
+        mime=$(file -b --mime-type "$src")
+        case "$mime" in
+            application/x-pie-executable|application/x-sharedlib)
+                strip "$src"
+                ;;
+        esac
+    fi
+
+    printf " * Transfer: $src -> $dst ...\n"
+
+    if [ "$is_local" = 1 ]; then
+        sudo rm -f "$dst"
+        sudo cp "$src" "$dst"
+        sudo restorecon "$dst"
+    else
+        ssh "$host" "rm '$dst'" > /dev/null
+        scp "$src" "$host":"$dst" > /dev/null
+        ssh "$host" "restorecon '$dst'" > /dev/null
+    fi
+}
+
+execute_quiet()
+{
+    if [ "$is_local" = 1 ]; then
+        sudo $1
+    else
+        ssh "$host" "$1"
+    fi
+}
+
+execute()
+{
+    printf " * Execute: $1 ...\n"
+    execute_quiet "$1"
+}
+
+while [ "$#" -ge 1 ]; do
+    opt="$1"
+    shift
+    case "$opt" in
+        --strip)
+            do_strip=1
+            ;;
+        --local)
+            is_local=1
+            ;;
+        --meson)
+            with_meson=1
+            ;;
+        --help)
+            usage "$0"
+            exit 0
+            ;;
+        --source)
+            copy_source=1
+            ;;
+        --*)
+            die "unrecognized argument '$opt'"
+            ;;
+        *)
+            if [ -n "$host" ]; then
+                die "duplicate host"
+            fi
+            host="$opt"
+            ;;
+    esac
+done
+
+if [ "$MESON" = 1 ]; then
+    with_meson=1
+fi
+
+if [ "$is_local" = 1 ] && [ -n "$host" ]; then
+    die "--local is incompatible with a host"
+fi
+
+if [ ! -d introspection ]; then
+    die "not in NetworkManager source tree"
+fi
+
+ver=$(grep version: meson.build | head -n 1 | cut -d\' -f 2)
+if [ -z "$ver" ]; then
+    die "can't determine the NetworkManager version"
+fi
+
+if [ -n "$with_meson" ]; then
+    prefix="meson-build/"
+else
+    ltdir=".libs"
+fi
+
+echo "Version: $ver"
+echo "Host: $host"
+echo "Meson: ${with_meson:-0}"
+echo "Strip: ${do_strip:-0}"
+echo
+
+# libraries
+transfer ${prefix}src/libnm-client-impl/${ltdir}libnm.so.0.1.0 /usr/lib64/libnm.so.0.1.0
+
+# clients
+transfer ${prefix}src/nmcli/${ltdir}nmcli /usr/bin/nmcli
+transfer ${prefix}src/nmtui/${ltdir}nmtui /usr/bin/nmtui
+transfer ${prefix}src/nm-online/${ltdir}nm-online /usr/bin/nm-online
+
+# helpers
+transfer ${prefix}src/nm-initrd-generator/nm-initrd-generator /usr/libexec/nm-initrd-generator
+transfer ${prefix}src/nm-dispatcher/nm-dispatcher /usr/libexec/nm-dispatcher
+
+# core
+transfer ${prefix}src/core/dhcp/nm-dhcp-helper /usr/libexec/nm-dhcp-helper
+transfer ${prefix}src/core/NetworkManager /sbin/NetworkManager
+
+# misc
+transfer src/nmcli/nmcli-completion /usr/share/bash-completion/completions/nmcli
+transfer ${prefix}data/org.freedesktop.NetworkManager.policy /usr/share/polkit-1/actions/org.freedesktop.NetworkManager.policy
+transfer ${prefix}src/libnm-client-impl/NM-1.0.typelib /usr/lib64/girepository-1.0/NM-1.0.typelib
+transfer src/core/org.freedesktop.NetworkManager.conf /usr/share/dbus-1/system.d/org.freedesktop.NetworkManager.conf
+
+
+# plugins
+plugins="${prefix}src/core/devices/adsl/${ltdir}libnm-device-plugin-adsl.so
+${prefix}src/core/devices/bluetooth/${ltdir}libnm-device-plugin-bluetooth.so
+${prefix}src/core/devices/ovs/${ltdir}libnm-device-plugin-ovs.so
+${prefix}src/core/devices/team/${ltdir}libnm-device-plugin-team.so
+${prefix}src/core/devices/wifi/${ltdir}libnm-device-plugin-wifi.so
+${prefix}src/core/devices/wwan/${ltdir}libnm-device-plugin-wwan.so
+${prefix}src/core/devices/wwan/${ltdir}libnm-wwan.so
+${prefix}src/core/ppp/${ltdir}libnm-ppp-plugin.so
+${prefix}src/core/settings/plugins/ifcfg-rh/${ltdir}libnm-settings-plugin-ifcfg-rh.so"
+
+execute "mkdir -p /usr/lib64/NetworkManager/$ver/"
+
+for plugin in $plugins; do
+    transfer "$plugin" "/usr/lib64/NetworkManager/$ver/$(basename $plugin)"
+done
+
+# pppd plugin
+ppp_dir=$(execute_quiet "ls /usr/lib64/pppd/")
+echo "remote pppd version: $ppp_dir"
+if [ -n "$ppp_dir" ]; then
+    transfer ${prefix}src/core/ppp/${ltdir}nm-pppd-plugin.so /usr/lib64/pppd/"$ppp_dir"/nm-pppd-plugin.so
+fi
+
+# source
+if [ -n "$copy_source" ] && [ -z "$is_local" ]; then
+    execute "mkdir -p ~/NetworkManager"
+    execute "! grep 'dir ~/NetworkManager/src/' .gdbinit > /dev/null && echo 'dir ~/NetworkManager/src/' >> .gdbinit"
+    rsync -avC --include='*.c' --include='*.h' --include='*/' --exclude='*' src ${host}:NetworkManager/
+fi
