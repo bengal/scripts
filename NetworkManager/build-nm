@@ -19,7 +19,7 @@ nm_build_meson()
           -Dnmcli=true \
           -Dnmtui=true \
           -Dpolkit=true  \
-          -Dpolkit_agent=true \
+          -Difcfg_rh=true \
           -Difupdown=true \
           -Dvapi=true \
           -Dld_gc=true \
