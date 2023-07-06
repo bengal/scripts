@@ -19,8 +19,14 @@ Supported options:
   --local    Copy to local machine
   --meson    The build tree uses meson
              (automatically implied when MESON=1 is set in environment)
-  --source   Copy source code to HOST:NetworkManager/
+  --source   Also copy source code to HOST:NetworkManager/
   --help     Print this help
+
+Examples:
+
+  $1 root@myvirtualmachine
+
+  $1 --local
 EOF
 }
 
@@ -111,6 +117,10 @@ done
 
 if [ "$MESON" = 1 ]; then
     with_meson=1
+fi
+
+if [ -z "$is_local" ] && [ -z "$host" ]; then
+    die "please provide a host or --local"
 fi
 
 if [ "$is_local" = 1 ] && [ -n "$host" ]; then
