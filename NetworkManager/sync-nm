@@ -169,6 +169,7 @@ transfer src/nmcli/nmcli-completion /usr/share/bash-completion/completions/nmcli
 transfer ${prefix}data/org.freedesktop.NetworkManager.policy /usr/share/polkit-1/actions/org.freedesktop.NetworkManager.policy
 transfer ${prefix}src/libnm-client-impl/NM-1.0.typelib /usr/lib64/girepository-1.0/NM-1.0.typelib
 transfer src/core/org.freedesktop.NetworkManager.conf /usr/share/dbus-1/system.d/org.freedesktop.NetworkManager.conf
+transfer ${prefix}src/nm-cloud-setup/nm-cloud-setup /usr/libexec/nm-cloud-setup
 
 
 # plugins
