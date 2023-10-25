@@ -190,7 +190,7 @@ for plugin in $plugins; do
 done
 
 # pppd plugin
-ppp_dir=$(execute_quiet "ls /usr/lib64/pppd/")
+ppp_dir=$(execute_quiet "ls -1 /usr/lib64/pppd/ | tail -n1")
 echo "remote pppd version: $ppp_dir"
 if [ -n "$ppp_dir" ]; then
     transfer ${prefix}src/core/ppp/${ltdir}nm-pppd-plugin.so /usr/lib64/pppd/"$ppp_dir"/nm-pppd-plugin.so
