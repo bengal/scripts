@@ -1,0 +1,161 @@
+#!/bin/sh
+
+usage()
+{
+    cat <<EOF
+Script to remotely install NetworkManager-libreswan binaries via ssh directly
+from build tree.
+
+Warning: this script can damage the target host, use it with caution.
+
+Warning: at the moment this requires a recent version of the git tree
+         and the target machine must be using Fedora.
+
+Usage: $1 [OPTIONS] [USER@HOST]
+
+Supported options:
+
+  --strip    Strip binaries before transfer (useful on slow networks)
+  --local    Copy to local machine
+  --meson    The build tree uses meson
+             (automatically implied when MESON=1 is set in environment)
+  --source   Also copy source code to HOST:NetworkManager/
+  --help     Print this help
+
+Examples:
+
+  $1 root@myvirtualmachine
+
+  $1 --local
+EOF
+}
+
+die()
+{
+    echo " *** Error: $*"
+    exit 1
+}
+
+transfer()
+{
+    local src="$1"
+    local dst="$2"
+
+    if [ ! -f "$src" ]; then
+        echo " ! File $1 does not exist"
+        return
+    fi
+
+    if [ "$do_strip" = 1 ]; then
+        mime=$(file -b --mime-type "$src")
+        case "$mime" in
+            application/x-pie-executable|application/x-sharedlib)
+                strip "$src"
+                ;;
+        esac
+    fi
+
+    printf " * Transfer: $src -> $dst ...\n"
+
+    if [ "$is_local" = 1 ]; then
+        sudo rm -f "$dst"
+        sudo cp "$src" "$dst"
+        sudo restorecon "$dst"
+    else
+        ssh "$host" "rm '$dst'" > /dev/null
+        scp "$src" "$host":"$dst" > /dev/null
+        ssh "$host" "restorecon '$dst'" > /dev/null
+    fi
+}
+
+execute_quiet()
+{
+    if [ "$is_local" = 1 ]; then
+        sudo sh -c "$1"
+    else
+        ssh "$host" "$1"
+    fi
+}
+
+execute()
+{
+    printf " * Execute: $1 ...\n"
+    execute_quiet "$1"
+}
+
+while [ "$#" -ge 1 ]; do
+    opt="$1"
+    shift
+    case "$opt" in
+        --strip)
+            do_strip=1
+            ;;
+        --local)
+            is_local=1
+            ;;
+        --meson)
+            with_meson=1
+            ;;
+        --help)
+            usage "$0"
+            exit 0
+            ;;
+        --source)
+            copy_source=1
+            ;;
+        --*)
+            die "unrecognized argument '$opt'"
+            ;;
+        *)
+            if [ -n "$host" ]; then
+                die "duplicate host"
+            fi
+            host="$opt"
+            ;;
+    esac
+done
+
+if [ "$MESON" = 1 ]; then
+    echo "meson unsupported"
+    with_meson=
+fi
+
+if [ -z "$is_local" ] && [ -z "$host" ]; then
+    die "please provide a host or --local"
+fi
+
+if [ "$is_local" = 1 ] && [ -n "$host" ]; then
+    die "--local is incompatible with a host"
+fi
+
+if [ ! -e nm-libreswan-service.conf ]; then
+    die "not in NetworkManager-libreswan source tree"
+fi
+
+if [ -n "$with_meson" ]; then
+    prefix="meson-build/"
+else
+    ltdir=".libs/"
+fi
+
+echo "Version: $ver"
+echo "Host: $host"
+echo "Meson: ${with_meson:-0}"
+echo "Strip: ${do_strip:-0}"
+echo
+
+# libraries
+transfer ./properties/${ltdir}libnm-vpn-plugin-libreswan.so /usr/lib64/NetworkManager/libnm-vpn-plugin-libreswan.so
+transfer ./properties/${ltdir}libnm-vpn-plugin-libreswan-editor.so /usr/lib64/NetworkManager/libnm-vpn-plugin-libreswan-editor.so
+transfer ./properties/${ltdir}/libnm-gtk4-vpn-plugin-libreswan-editor.so /usr/lib64/NetworkManager/libnm-gtk4-vpn-plugin-libreswan-editor.so
+
+# helpers
+transfer src/nm-libreswan-service /usr/libexec/nm-libreswan-service
+transfer src/nm-libreswan-service-helper /usr/libexec/nm-libreswan-service-helper
+
+# source
+if [ -n "$copy_source" ] && [ -z "$is_local" ]; then
+    execute "mkdir -p ~/NetworkManager-libreswan"
+    execute "! grep 'dir ~/NetworkManager-libreswan' .gdbinit > /dev/null && echo 'dir ~/NetworkManager-libreswan' >> .gdbinit"
+    rsync -avC --include='*.c' --include='*.h' --include='*/' --exclude='*' . ${host}:NetworkManager-libreswan
+fi
