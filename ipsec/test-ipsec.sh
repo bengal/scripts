@@ -86,7 +86,8 @@ RUN dnf install -y libreswan \
     openssh-server \
     bash-completion \
     less \
-    policycoreutils
+    policycoreutils \
+    tcpdump
 COPY authorized_keys /root/.ssh/authorized_keys
 RUN systemctl enable sshd
 RUN rm /etc/machine-id
@@ -184,6 +185,17 @@ podman exec "$cont2" pk12util -i /tmp/ipsec/hostb.example.org.p12 \
 podman exec "$cont2" certutil -M \
        -n "nmstate-test-ca.example.org" -t CT,, -d sql:/var/lib/ipsec/nss
 
+echo " * Setting up IPv6..."
+
+podman exec "$cont1" nmcli connection modify eth0 \
+       ipv6.method manual ipv6.addresses fd01::2/64 ipv6.gateway fd01::1
+podman exec "$cont1" nmcli connection up eth0
+
+podman exec "$cont2" nmcli connection modify eth0 \
+       ipv6.method manual ipv6.addresses fd01::3/64 ipv6.gateway fd01::1
+podman exec "$cont2" nmcli connection up eth0
+
+
 echo " * Starting IPsec..."
 
 cat "$tmpdir/ipsec1.conf" | podman exec -i "$cont1" /bin/bash -c "cat > /etc/ipsec.conf"
@@ -198,6 +210,3 @@ sleep 2
 
 podman exec "$cont1" ipsec auto --status
 podman exec "$cont2" ipsec auto --status
-
-podman exec "$cont1" ping -c 4 $ip2
-podman exec "$cont2" ping -c 4 $ip1
