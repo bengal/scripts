@@ -106,7 +106,6 @@ if ! container_is_running "$c1"; then
            --detach \
            --tty \
            -v $tmpdir:/tmp/ipsec \
-           -v $XAUTHORITY:$XAUTHORITY:ro -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
            --security-opt label=type:container_runtime_t \
            --network n1:ip=172.16.1.10,ip=fd01::10 \
            --dns=none \
@@ -122,7 +121,6 @@ if ! container_is_running "$c2"; then
            --detach \
            --tty \
            -v $tmpdir:/tmp/ipsec \
-           -v $XAUTHORITY:$XAUTHORITY:ro -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
            --security-opt label=type:container_runtime_t \
            --network n2:ip=172.16.2.20,ip=fd02::20 \
            --dns=none \
@@ -137,7 +135,6 @@ if ! container_is_running "$cr"; then
            --detach \
            --tty \
            -v $tmpdir:/tmp/ipsec \
-           -v $XAUTHORITY:$XAUTHORITY:ro -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
            --security-opt label=type:container_runtime_t \
            --network n1:ip=172.16.1.15,ip=fd01::15 \
            --network n2:ip=172.16.2.15,ip=fd02::15 \
