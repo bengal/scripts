@@ -94,7 +94,6 @@ if ! podman network exists n2; then
     podman network create --subnet 172.16.2.0/24 --ipv6 --subnet fd02::/64 n2
 fi
 
-
 # For now, restart the container every time
 podman stop "$c1" 2>/dev/null
 podman stop "$c2" 2>/dev/null
@@ -114,6 +113,7 @@ if ! container_is_running "$c1"; then
            --name "$c1" \
            "$image"
 fi
+
 
 if ! container_is_running "$c2"; then
     podman run \
@@ -145,18 +145,35 @@ if ! container_is_running "$cr"; then
            "$image"
 fi
 
+
+ip link set veth0 master podman1
+
 # Give some time for the system to settle
-sleep 5
+sleep 10
 
 echo " * Setting up IPv6..."
 
-podman exec "$c1" nmcli connection modify eth0 \
-       ipv4.gateway 172.16.1.15 ipv6.gateway fd01::15
-podman exec "$c1" nmcli device reapply eth0
+podman exec "$c1" nmcli connection delete eth0
+podman exec "$c1" nmcli connection add type ethernet ifname eth0 con-name eth0 \
+       ip4 172.16.1.10/24 gw4 172.16.1.15 \
+       ip6 fd01::10/64 gw6 fd01::15
+podman exec "$c1" nmcli connection up eth0
 
-podman exec "$c2" nmcli connection modify eth0 \
-       ipv4.gateway 172.16.2.15 ipv6.gateway fd02::15
-podman exec "$c2" nmcli device reapply eth0
+podman exec "$c2" nmcli connection delete eth0
+podman exec "$c2" nmcli connection add type ethernet ifname eth0 con-name eth0 \
+       ip4 172.16.2.20/24 gw4 172.16.2.15 \
+       ip6 fd02::20/64 gw6 fd02::15
+podman exec "$c2" nmcli connection up eth0
+
+
+podman exec "$cr" nmcli connection delete eth0 eth1
+podman exec "$cr" nmcli connection add type ethernet ifname eth0 con-name eth0 \
+       ip4 172.16.1.15/24 ip6 fd01::15/64
+podman exec "$cr" nmcli connection up eth0
+
+podman exec "$cr" nmcli connection add type ethernet ifname eth1 con-name eth1 \
+       ip4 172.16.2.15/24 ip6 fd02::15/64
+podman exec "$cr" nmcli connection up eth1
 
 podman exec "$cr" sh -c "echo 1 > /proc/sys/net/ipv4/conf/all/forwarding"
 podman exec "$cr" sh -c "echo 1 > /proc/sys/net/ipv6/conf/all/forwarding"
@@ -195,12 +212,17 @@ done
 podman exec "$c1" pk12util -i /tmp/ipsec/hosta.example.org.p12 \
        -d sql:/var/lib/ipsec/nss \
        -W password
+
 podman exec "$c1" certutil -M \
        -n "nmstate-test-ca.example.org" -t CT,, -d sql:/var/lib/ipsec/nss
 
 podman exec "$c2" pk12util -i /tmp/ipsec/hostb.example.org.p12 \
        -d sql:/var/lib/ipsec/nss \
        -W password
+podman exec "$c2" pk12util -i /tmp/ipsec/hosta.example.org.p12 \
+       -d sql:/var/lib/ipsec/nss \
+       -W password
+
 podman exec "$c2" certutil -M \
        -n "nmstate-test-ca.example.org" -t CT,, -d sql:/var/lib/ipsec/nss
 
