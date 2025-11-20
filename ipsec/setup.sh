@@ -94,7 +94,7 @@ if ! podman network exists n2; then
     podman network create --subnet 172.16.2.0/24 --ipv6 --subnet fd02::/64 n2
 fi
 
-# For now, restart the container every time
+# Restart the containers every time
 podman stop "$c1" 2>/dev/null
 podman stop "$c2" 2>/dev/null
 podman stop "$cr" 2>/dev/null
@@ -106,7 +106,6 @@ if ! container_is_running "$c1"; then
            --detach \
            --tty \
            -v $tmpdir:/tmp/ipsec \
-           --security-opt label=type:container_runtime_t \
            --network n1:ip=172.16.1.10,ip=fd01::10 \
            --dns=none \
            --name "$c1" \
@@ -121,7 +120,6 @@ if ! container_is_running "$c2"; then
            --detach \
            --tty \
            -v $tmpdir:/tmp/ipsec \
-           --security-opt label=type:container_runtime_t \
            --network n2:ip=172.16.2.20,ip=fd02::20 \
            --dns=none \
            --name "$c2" \
@@ -135,15 +133,11 @@ if ! container_is_running "$cr"; then
            --detach \
            --tty \
            -v $tmpdir:/tmp/ipsec \
-           --security-opt label=type:container_runtime_t \
            --network n1:ip=172.16.1.15,ip=fd01::15 \
            --network n2:ip=172.16.2.15,ip=fd02::15 \
            --name "$cr" \
            "$image"
 fi
-
-
-ip link set veth0 master podman1
 
 # Give some time for the system to settle
 sleep 10
@@ -155,6 +149,12 @@ podman exec "$c1" nmcli connection add type ethernet ifname eth0 con-name eth0 \
        ip4 172.16.1.10/24 gw4 172.16.1.15 \
        ip6 fd01::10/64 gw6 fd01::15
 podman exec "$c1" nmcli connection up eth0
+
+podman exec "$c1" "printf '[logging]\ndomains=ALL,VPN_PLUGIN:trace\n' > /etc/NetworkManager/conf.d/50-logging.conf"
+podman exec "$c1" systemctl restart NetworkManager
+
+podman exec "$c2" "printf '[logging]\ndomains=ALL,VPN_PLUGIN:trace\n' > /etc/NetworkManager/conf.d/50-logging.conf"
+podman exec "$c2" systemctl restart NetworkManager
 
 podman exec "$c2" nmcli connection delete eth0
 podman exec "$c2" nmcli connection add type ethernet ifname eth0 con-name eth0 \
@@ -227,7 +227,7 @@ echo " * Copying configurations ..."
 
 cp -r "$scriptdir"/tests "$tmpdir"
 
-for f in "$tmpdir"/tests/*/{1,2}.conf; do
+for f in "$tmpdir"/tests/*/{1,2}.{conf,nmconnection}; do
     replace_string "@@KEY1@@" "$key1" "$f"
     replace_string "@@KEY2@@" "$key2" "$f"
 done    
@@ -249,4 +249,6 @@ podman exec "$c2" ipsec setup start
 podman exec "$c1" ipsec setup stop
 podman exec "$c1" ipsec setup start
 
-# podman exec "$c1" sh -c 'echo "for f in /etc/ipsec.d/*.conf; do nmcli connection import file \$f type libreswan; done" >> /root/.bash_history'
+# FIXME: add route to local libvirt network
+podman exec "$c1" ip route add 192.168.122.0/24 via 172.16.1.1 dev eth0
+podman exec "$c2" ip route add 192.168.122.0/24 via 172.16.2.1 dev eth0

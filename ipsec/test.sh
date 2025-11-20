@@ -40,26 +40,28 @@ run_test()
         return 1
     fi
 
-    podman exec "$c1" cp /root/ipsec/tests/"$t"/1.conf /etc/ipsec.d/"$t".conf
-    podman exec "$c2" cp /root/ipsec/tests/"$t"/2.conf /etc/ipsec.d/"$t".conf
+    set -x
+
+    podman exec "$c1" sh -c "[ -f /root/ipsec/tests/$t/1.conf ] && cp /root/ipsec/tests/$t/1.conf /etc/ipsec.d/$t.conf"
+    podman exec "$c2" sh -c "[ -f /root/ipsec/tests/$t/2.conf ] && cp /root/ipsec/tests/$t/2.conf /etc/ipsec.d/$t.conf"
+    podman exec "$c1" sh -c "[ -f /root/ipsec/tests/$t/1.nmconnection ] && cp /root/ipsec/tests/$t/1.nmconnection /etc/NetworkManager/system-connections/$t.nmconnection"
+    podman exec "$c2" sh -c "[ -f /root/ipsec/tests/$t/2.nmconnection ] && cp /root/ipsec/tests/$t/2.nmconnection /etc/NetworkManager/system-connections/$t.nmconnection"
 
     podman exec "$c1" /root/ipsec/tests/"$t"/do.sh clean
     podman exec "$c2" /root/ipsec/tests/"$t"/do.sh clean
+    podman exec "$c1" chmod 600 "/etc/NetworkManager/system-connections/$t.nmconnection"
+    podman exec "$c2" chmod 600 "/etc/NetworkManager/system-connections/$t.nmconnection"
 
     podman exec "$c1" systemctl restart NetworkManager
+    podman exec "$c2" systemctl restart NetworkManager
     podman exec "$c1" systemctl restart ipsec
     podman exec "$c2" systemctl restart ipsec
 
-    podman exec "$c2" ipsec auto --add "$t"
-
-    if ! podman exec "$c1" nmcli connection import \
-         type libreswan file /etc/ipsec.d/"$t".conf; then
-        echo " ERROR: importing connection failed"
-        return 1
-    fi
+    podman exec "$c1" sh -c "if [ ! -f /etc/NetworkManager/system-connections/$t.nmconnection ]; then nmcli connection import type libreswan file /etc/ipsec.d/$t.conf; fi"
+    podman exec "$c2" sh -c "if [ -f /etc/NetworkManager/system-connections/$t.nmconnection ]; then nmcli connection up $t; else ipsec auto --add $t; fi"
 
     if ! podman exec "$c1" nmcli connection up "$t"; then
-        echo " ERROR: bringing connection up"
+        echo " ERROR: bringing connection up on $c1"
         return 1
     fi
 

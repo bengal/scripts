@@ -26,4 +26,8 @@ When running a tests, the following steps are done:
  - on host1, the NM connection is activated
  - on both hosts, the "check" action is invoked to check if the VPN is functional
 
+Some tests have the "cs-" prefix, indicating that they are
+client/server tests, i.e. NetworkManager is used on both host1 and
+host2.
+
 To run all tests, use "./test.sh all".
