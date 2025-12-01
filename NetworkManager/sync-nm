@@ -63,7 +63,7 @@ transfer()
         sudo restorecon "$dst"
     else
         ssh "$host" "rm '$dst'" > /dev/null
-        scp "$src" "$host":"$dst" > /dev/null
+        scp -C "$src" "$host":"$dst" > /dev/null
         ssh "$host" "restorecon '$dst'" > /dev/null
     fi
 }
@@ -71,7 +71,7 @@ transfer()
 execute_quiet()
 {
     if [ "$is_local" = 1 ]; then
-        sudo $1
+        sudo sh -c "$1"
     else
         ssh "$host" "$1"
     fi
@@ -139,7 +139,7 @@ fi
 if [ -n "$with_meson" ]; then
     prefix="meson-build/"
 else
-    ltdir=".libs"
+    ltdir=".libs/"
 fi
 
 echo "Version: $ver"
@@ -159,10 +159,14 @@ transfer ${prefix}src/nm-online/${ltdir}nm-online /usr/bin/nm-online
 # helpers
 transfer ${prefix}src/nm-initrd-generator/nm-initrd-generator /usr/libexec/nm-initrd-generator
 transfer ${prefix}src/nm-dispatcher/nm-dispatcher /usr/libexec/nm-dispatcher
+transfer ${prefix}src/nm-daemon-helper/nm-daemon-helper /usr/libexec/nm-daemon-helper
+transfer ${prefix}src/nm-helpers/nm-daemon-helper /usr/libexec/nm-daemon-helper
+transfer ${prefix}src/nm-helpers/nm-libnm-helper /usr/libexec/nm-libnm-helper
 
 # core
 transfer ${prefix}src/core/dhcp/nm-dhcp-helper /usr/libexec/nm-dhcp-helper
 transfer ${prefix}src/core/NetworkManager /sbin/NetworkManager
+transfer ${prefix}src/core/NetworkManager /usr/bin/NetworkManager
 
 # misc
 transfer src/nmcli/nmcli-completion /usr/share/bash-completion/completions/nmcli
@@ -170,7 +174,7 @@ transfer ${prefix}data/org.freedesktop.NetworkManager.policy /usr/share/polkit-1
 transfer ${prefix}src/libnm-client-impl/NM-1.0.typelib /usr/lib64/girepository-1.0/NM-1.0.typelib
 transfer src/core/org.freedesktop.NetworkManager.conf /usr/share/dbus-1/system.d/org.freedesktop.NetworkManager.conf
 transfer ${prefix}src/nm-cloud-setup/nm-cloud-setup /usr/libexec/nm-cloud-setup
-
+transfer ${prefix}data/NetworkManager.service /usr/lib/systemd/system/NetworkManager.service
 
 # plugins
 plugins="${prefix}src/core/devices/adsl/${ltdir}libnm-device-plugin-adsl.so
