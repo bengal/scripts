@@ -16,7 +16,7 @@ set -x
 #  |                |      |  fd02::15/64   |  n2  |  fd02::20/64   |
 #  +----------------+      +----------------+      +----------------+
 #  
-image=fedora-ipsec
+image=ipsec
 scriptdir="$(dirname "$(readlink -f "$0")")"
 tmpdir=$(mktemp -d /tmp/libreswan-XXXXXX)
 
@@ -61,8 +61,6 @@ ENTRYPOINT ["/sbin/init"]
 
 RUN dnf install -y libreswan \
     NetworkManager-libreswan \
-    NetworkManager-libreswan-gnome \
-    nm-connection-editor \
     iputils \
     hostname \
     openssh-server \
@@ -72,7 +70,8 @@ RUN dnf install -y libreswan \
     gdb \
     valgrind \
     rsync \
-    tcpdump
+    tcpdump \
+    --allowerasing
 COPY authorized_keys /root/.ssh/authorized_keys
 RUN systemctl enable sshd
 RUN rm /etc/machine-id
@@ -150,10 +149,10 @@ podman exec "$c1" nmcli connection add type ethernet ifname eth0 con-name eth0 \
        ip6 fd01::10/64 gw6 fd01::15
 podman exec "$c1" nmcli connection up eth0
 
-podman exec "$c1" "printf '[logging]\ndomains=ALL,VPN_PLUGIN:trace\n' > /etc/NetworkManager/conf.d/50-logging.conf"
+podman exec "$c1" sh -c 'printf "[logging]\ndomains=ALL,VPN_PLUGIN:trace\n" > /etc/NetworkManager/conf.d/50-logging.conf'
 podman exec "$c1" systemctl restart NetworkManager
 
-podman exec "$c2" "printf '[logging]\ndomains=ALL,VPN_PLUGIN:trace\n' > /etc/NetworkManager/conf.d/50-logging.conf"
+podman exec "$c2" sh -c 'printf "[logging]\ndomains=ALL,VPN_PLUGIN:trace\n" > /etc/NetworkManager/conf.d/50-logging.conf'
 podman exec "$c2" systemctl restart NetworkManager
 
 podman exec "$c2" nmcli connection delete eth0
