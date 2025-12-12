@@ -6,7 +6,6 @@ type=vpn
 [vpn]
 ike=aes256-sha1;modp1536
 ikelifetime=24h
-ikev2=never
 left=172.16.2.20
 leftid=@east
 leftmodecfgclient=no
@@ -19,7 +18,7 @@ rightrsasigkey=@@KEY1@@
 salifetime=24h
 service-type=org.freedesktop.NetworkManager.libreswan
 ikev2=insist
-nm-connect-mode=add
+nm-connect-mode=ondemand
 
 [ipv4]
 method=auto
