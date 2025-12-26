@@ -18,7 +18,7 @@ IFACE=enp7s0
 #           v                                           [ns1] #
 #                                                             #
 #         veth1      <--->  nat64  <--->     dummy1           #
-u#    2002:aaaa::1/64       (tayga)       100.25.1.1/24        #
+#    2002:aaaa::1/64       (tayga)       100.25.1.1/24        #
 #        (radvd)                               ^              #
 #                                              |              #
 #                                            (nat)            #
@@ -87,7 +87,7 @@ interface veth1
 {
     AdvSendAdvert on;
     MinRtrAdvInterval 6;
-    MaxRtrAdvInterval 12;
+    MaxRtrAdvInterval 240;
     AdvLinkMTU 1498;
     prefix 2002:aaaa::/64 {
         AdvOnLink on;
@@ -109,6 +109,7 @@ ipv4-addr 100.25.1.133
 prefix 64:ff9b::/96
 dynamic-pool 100.25.1.144/28
 data-dir /var/lib/tayga/nat64
+offlink-mtu 1492
 EOF
 ip netns exec ns1 tayga --config /tmp/tayga.conf --mktun
 ip -n ns1 link set nat64 up
