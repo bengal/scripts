@@ -1,13 +1,21 @@
 #!/bin/bash
 
 # This script configures an enviroment for testing CLAT (464XLAT).
-#
 # Set $IFACE to an interface with access to IPv4 internet and
 # with a DHCPv4 server. After running the script, the internet
 # access is available via NAT64 over the IPv6-only network on
 # veth0.
 
 IFACE=enp7s0
+
+PREF64=64:ff9b::/96
+#PREF64=2001:db8::/32
+#PREF64=2001:db8:100::/40
+#PREF64=2001:db8:122::/48
+#PREF64=2001:db8:122:300::/56
+#PREF64=2001:db8:122:344::/64
+#PREF64=2001:db8:122:344::/96
+
 
 ###############################################################
 #                                                   [init ns] #
@@ -18,7 +26,7 @@ IFACE=enp7s0
 #           v                                           [ns1] #
 #                                                             #
 #         veth1      <--->  nat64  <--->     dummy1           #
-#    2002:aaaa::1/64       (tayga)       100.25.1.1/24        #
+#    2002:aaaa::1/64       (tayga)       100.99.1.1/24        #
 #        (radvd)                               ^              #
 #                                              |              #
 #                                            (nat)            #
@@ -71,7 +79,7 @@ ip link add dummy1 netns ns1 type dummy
 ip -n ns1 link set veth1 up
 ip -n ns1 addr add dev veth1 2002:aaaa::1/64
 ip -n ns1 link set dummy1 up
-ip -n ns1 addr add dev dummy1 100.25.1.1/24
+ip -n ns1 addr add dev dummy1 100.99.1.1/24
 ip netns exec ns1 sysctl -w net.ipv4.ip_forward=1
 ip netns exec ns1 iptables -t nat -A POSTROUTING -o $IFACE -j MASQUERADE
 ip link set $IFACE netns ns1
@@ -94,7 +102,7 @@ interface veth1
         AdvAutonomous on;
     };
 
-    nat64prefix 64:ff9b::/96 {
+    nat64prefix $PREF64 {
         AdvValidLifetime 1800;
     };
 };
@@ -105,16 +113,17 @@ ip netns exec ns1 radvd --config /tmp/radvd.conf --pidfile /tmp/radvd.pid
 # set up tayga
 cat <<EOF >/tmp/tayga.conf
 tun-device nat64
-ipv4-addr 100.25.1.133
-prefix 64:ff9b::/96
-dynamic-pool 100.25.1.144/28
+ipv4-addr 100.99.1.133
+prefix $PREF64
+dynamic-pool 100.99.1.144/28
 data-dir /var/lib/tayga/nat64
 offlink-mtu 1492
+wkpf-strict no
 EOF
 ip netns exec ns1 tayga --config /tmp/tayga.conf --mktun
 ip -n ns1 link set nat64 up
-ip -n ns1 route add 100.25.1.144/28 dev nat64
-ip -n ns1 route add 64:ff9b::/96 dev nat64
+ip -n ns1 route add 100.99.1.144/28 dev nat64
+ip -n ns1 route add $PREF64 dev nat64
 ip netns exec ns1 tayga --config /tmp/tayga.conf --pidfile /tmp/tayga.pid
 
 sleep 1
